@@ -1,0 +1,1 @@
+"""Nature weekly literature crawler."""

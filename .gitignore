@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.browser_profile/
+.browser_test*/
+.env
+.venv/
+*.log
+data/

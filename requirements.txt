@@ -1,0 +1,6 @@
+beautifulsoup4>=4.12
+openai>=1.0
+playwright>=1.40
+pypdf>=4.0
+pyyaml>=6.0
+requests>=2.31

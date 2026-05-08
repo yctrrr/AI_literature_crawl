@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+from src.models import Candidate, Classification, FetchResult
+from src.utils import now_iso, unique_path
+
+
+class ArchiveManager:
+    def __init__(self, category_source: Path, archive_root: Path):
+        self.category_source = category_source
+        self.archive_root = archive_root
+        self.state_dir = archive_root / "_state"
+        self.summary_dir = archive_root / "_summaries"
+        self.download_dir = archive_root / "_download"
+
+    def ensure_layout(self) -> None:
+        self.archive_root.mkdir(parents=True, exist_ok=True)
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.summary_dir.mkdir(parents=True, exist_ok=True)
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        for category in self.categories():
+            (self.archive_root / category).mkdir(parents=True, exist_ok=True)
+
+    def categories(self) -> list[str]:
+        if not self.category_source.exists():
+            raise FileNotFoundError(f"Category source does not exist: {self.category_source}")
+        return sorted([p.name for p in self.category_source.iterdir() if p.is_dir()])
+
+    def staging_dir(self, run_id: str, slug: str) -> Path:
+        return self.download_dir
+
+    def finalize_article(self, candidate: Candidate, fetched: FetchResult, classification: Classification) -> Path:
+        category = classification.category if classification.category in self.categories() else "others"
+        category_dir = self.archive_root / category
+        category_dir.mkdir(parents=True, exist_ok=True)
+
+        if fetched.pdf_path:
+            pdf_target = unique_path(category_dir / fetched.pdf_path.name)
+            if fetched.pdf_path.resolve() != pdf_target.resolve():
+                shutil.move(str(fetched.pdf_path), str(pdf_target))
+            fetched.pdf_path = pdf_target
+
+        if fetched.attachment_path:
+            attachment_target = unique_path(category_dir / fetched.attachment_path.name)
+            if fetched.attachment_path.resolve() != attachment_target.resolve():
+                shutil.move(str(fetched.attachment_path), str(attachment_target))
+                fetched.attachment_path = attachment_target
+
+        metadata = {
+            **fetched.metadata,
+            "source_url": candidate.url,
+            "keyword": candidate.keyword,
+            "category": category,
+            "classification": {
+                "confidence": classification.confidence,
+                "rationale": classification.rationale,
+                "status": classification.status,
+            },
+            "pdf_path": str(fetched.pdf_path) if fetched.pdf_path else "",
+            "attachment_path": str(fetched.attachment_path) if fetched.attachment_path else "",
+            "updated_at": now_iso(),
+        }
+        metadata_name = f"{Path(fetched.pdf_path).stem}.metadata.json" if fetched.pdf_path else "metadata.json"
+        with (unique_path(category_dir / metadata_name)).open("w", encoding="utf-8") as handle:
+            json.dump(metadata, handle, ensure_ascii=False, indent=2)
+
+        return category_dir
+
+    def write_summary(self, fetched: FetchResult, summary_text: str) -> None:
+        summary_path = self.summary_dir / "summary.md"
+        title = fetched.pdf_path.stem if fetched.pdf_path else "Untitled"
+        with summary_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"## {title}\n\n{summary_text.strip()}\n\n")
