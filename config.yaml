@@ -5,6 +5,7 @@ keywords:
 
 nature:
   base_url: https://www.nature.com
+  journal_name_required_term: Nature
   journals:
     - ""
   feed_first: true

@@ -11,6 +11,7 @@ import yaml
 class NatureConfig:
     base_url: str
     journals: list[str] = field(default_factory=lambda: [""])
+    journal_name_required_term: str = "Nature"
     feed_first: bool = True
     feed_urls: list[str] = field(default_factory=list)
     search_fallback: bool = True

@@ -14,15 +14,23 @@ class StateManager:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.processed_path = self.state_dir / "processed_articles.jsonl"
         self.pending_path = self.state_dir / "pending_no_pdf.jsonl"
+        self.filtered_path = self.state_dir / "filtered_articles.jsonl"
         self.failures_path = self.state_dir / "failed_downloads.jsonl"
         self._processed = read_jsonl(self.processed_path)
+        self._filtered = read_jsonl(self.filtered_path)
         self.processed_logger = JsonlLogger(self.processed_path)
         self.pending_logger = JsonlLogger(self.pending_path)
+        self.filtered_logger = JsonlLogger(self.filtered_path)
         self.failure_logger = JsonlLogger(self.failures_path)
         self._archived = self._scan_archive()
 
     def is_processed(self, doi: str, url: str) -> bool:
         for row in self._processed:
+            if doi and row.get("doi") == doi:
+                return True
+            if url and row.get("url") == url:
+                return True
+        for row in self._filtered:
             if doi and row.get("doi") == doi:
                 return True
             if url and row.get("url") == url:
@@ -70,6 +78,19 @@ class StateManager:
                 "metadata": metadata,
             }
         )
+
+    def write_filtered(self, candidate: Candidate, metadata: dict, reason: str) -> None:
+        row = {
+            "doi": candidate.doi or metadata.get("doi", ""),
+            "url": candidate.url,
+            "title": metadata.get("title") or candidate.title,
+            "keyword": candidate.keyword,
+            "reason": reason,
+            "journal": metadata.get("journal", ""),
+            "required_term": metadata.get("journal_filter_required_term", ""),
+        }
+        self.filtered_logger.write(row)
+        self._filtered.append(row)
 
     def write_failure(self, candidate: Candidate, error_type: str, message: str) -> None:
         self.failure_logger.write(

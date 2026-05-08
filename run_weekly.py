@@ -89,6 +89,15 @@ def process_candidate(candidate, archive, state, fetcher, llm, summarize: bool, 
         return
 
     if not fetched.pdf_path:
+        if fetched.error == "journal_filtered":
+            state.write_filtered(candidate, fetched.metadata, fetched.error)
+            print(
+                "FILTERED: "
+                f"{candidate.url} "
+                f"(journal '{fetched.metadata.get('journal', '')}' does not contain "
+                f"'{fetched.metadata.get('journal_filter_required_term', '')}')"
+            )
+            return
         state.write_pending_no_pdf(candidate, fetched.metadata, fetched.error or "no_pdf")
         print(f"NO PDF: {candidate.url}")
         return

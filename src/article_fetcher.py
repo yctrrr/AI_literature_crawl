@@ -54,6 +54,9 @@ class ArticleFetcher:
             page.wait_for_timeout(1500)
             html = page.content()
             metadata = self._metadata_from_html(html, candidate)
+            if not self._journal_allowed(metadata):
+                metadata["journal_filter_required_term"] = self.config.nature.journal_name_required_term
+                return FetchResult(None, None, metadata, "journal_filtered")
             pdf_url = self._find_pdf_url(html, candidate.url)
             attachment_url = self._find_attachment_url(html, candidate.url)
 
@@ -77,6 +80,12 @@ class ArticleFetcher:
             return FetchResult(pdf_path, attachment_path, metadata)
         finally:
             page.close()
+
+    def _journal_allowed(self, metadata: dict) -> bool:
+        required = (self.config.nature.journal_name_required_term or "").strip().lower()
+        if not required:
+            return True
+        return required in (metadata.get("journal") or "").lower()
 
     def _download_url(self, url: str, target: Path) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -131,19 +140,40 @@ class ArticleFetcher:
     def _find_pdf_url(html: str, page_url: str) -> str:
         soup = BeautifulSoup(html, "html.parser")
         candidates: list[str] = []
-        for meta in soup.find_all("meta"):
-            name = (meta.get("name") or "").lower()
-            if name == "citation_pdf_url" and meta.get("content"):
-                candidates.append(meta["content"])
+        fallback_candidates: list[str] = []
+
+        def add_candidate(href: str, fallback: bool = False) -> None:
+            url = normalize_url(href, page_url)
+            if ".pdf" not in url.lower() and "/pdf/" not in url.lower():
+                return
+            target = fallback_candidates if fallback else candidates
+            if url not in candidates and url not in fallback_candidates:
+                target.append(url)
+
         for anchor in soup.find_all("a", href=True):
             href = anchor.get("href", "")
             text = anchor.get_text(" ", strip=True).lower()
-            if href.lower().endswith(".pdf") or ".pdf?" in href.lower() or "download pdf" in text:
-                candidates.append(href)
-        for href in candidates:
-            url = normalize_url(href, page_url)
-            if ".pdf" in url.lower() or "/pdf/" in url.lower():
-                return url
+            class_names = " ".join(anchor.get("class") or []).lower()
+            is_download_button = (
+                anchor.get("data-test") == "download-pdf"
+                or anchor.get("data-article-pdf") == "true"
+                or "c-pdf-download__link" in class_names
+                or "download pdf" in text
+            )
+            if is_download_button:
+                add_candidate(href)
+
+        for anchor in soup.find_all("a", href=True):
+            href = anchor.get("href", "")
+            if href.lower().endswith(".pdf") or ".pdf?" in href.lower():
+                add_candidate(href)
+
+        for meta in soup.find_all("meta"):
+            name = (meta.get("name") or "").lower()
+            if name == "citation_pdf_url" and meta.get("content"):
+                add_candidate(meta["content"], fallback=True)
+        for url in [*candidates, *fallback_candidates]:
+            return url
         return ""
 
     @staticmethod

@@ -34,6 +34,7 @@ These paths are configurable in `config.yaml`.
 literature_crawl/
   config.yaml
   README.md
+  prepare_endnote_import.py
   requirements.txt
   run_weekly.py
   scheduler.ps1
@@ -85,6 +86,9 @@ keywords:
   - climate change
   - energy transition
 
+nature:
+  journal_name_required_term: Nature
+
 download:
   max_articles_per_run: 20
 
@@ -129,6 +133,14 @@ Download/classify without summary:
 python .\run_weekly.py --config .\config.yaml --limit 1 --headless false --no-summarize
 ```
 
+Prepare an EndNote import package from downloaded papers:
+
+```powershell
+python .\prepare_endnote_import.py
+```
+
+The generated `.enw` file stores the main PDF and any matching `Supp-*` file on the same EndNote record, and adds the `AI_crawl` keyword for grouping.
+
 ### Weekly Scheduler
 
 Register the default Monday 09:00 task:
@@ -152,6 +164,7 @@ python <repo>\run_weekly.py --config <repo>\config.yaml
 - `<Category>\Journal-FirstAuthor-Year-Title.metadata.json`
 - `_state\processed_articles.jsonl`
 - `_state\pending_no_pdf.jsonl`
+- `_state\filtered_articles.jsonl`
 - `_state\failed_downloads.jsonl`
 - `_state\run_log.jsonl`
 - `_summaries\summary.md`
@@ -171,6 +184,7 @@ If a previous run downloaded a paper, later formal runs skip downloading it agai
 ### Notes
 
 - Nature page structure can change, so selectors may need maintenance.
+- `nature.journal_name_required_term` filters out articles whose journal title does not contain the configured text before download.
 - Institution-protected PDFs may require a logged-in Chrome profile.
 - Search fallback is intentionally rate-limited by `delay_seconds`.
 
