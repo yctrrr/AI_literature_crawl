@@ -46,6 +46,37 @@ class ArticleFetcher:
         if not self.context:
             raise RuntimeError("ArticleFetcher must be used as a context manager")
 
+        inspected = self.inspect(candidate)
+        if inspected.error:
+            return inspected
+        metadata = inspected.metadata
+        html = metadata.pop("_html", "")
+        pdf_url = self._find_pdf_url(html, candidate.url)
+        attachment_url = self._find_attachment_url(html, candidate.url)
+
+        pdf_path = None
+        attachment_path = None
+        file_stem = self._article_file_stem(metadata, candidate)
+        metadata["file_stem"] = file_stem
+        if pdf_url:
+            pdf_path = self._download_url(pdf_url, unique_path(staging_dir / f"{file_stem}.pdf"))
+        if attachment_url:
+            try:
+                attachment_path = self._download_url(
+                    attachment_url,
+                    self._attachment_target(attachment_url, staging_dir, file_stem),
+                )
+            except Exception as exc:
+                metadata["attachment_error"] = str(exc)
+        metadata["pdf_url"] = pdf_url
+        metadata["attachment_url"] = attachment_url
+        metadata["attachment_status"] = "downloaded" if attachment_path else "none"
+        return FetchResult(pdf_path, attachment_path, metadata)
+
+    def inspect(self, candidate: Candidate) -> FetchResult:
+        if not self.context:
+            raise RuntimeError("ArticleFetcher must be used as a context manager")
+
         page = self.context.new_page()
         try:
             response = page.goto(candidate.url, wait_until="domcontentloaded", timeout=60000)
@@ -57,27 +88,8 @@ class ArticleFetcher:
             if not self._journal_allowed(metadata):
                 metadata["journal_filter_required_term"] = self.config.nature.journal_name_required_term
                 return FetchResult(None, None, metadata, "journal_filtered")
-            pdf_url = self._find_pdf_url(html, candidate.url)
-            attachment_url = self._find_attachment_url(html, candidate.url)
-
-            pdf_path = None
-            attachment_path = None
-            file_stem = self._article_file_stem(metadata, candidate)
-            metadata["file_stem"] = file_stem
-            if pdf_url:
-                pdf_path = self._download_url(pdf_url, unique_path(staging_dir / f"{file_stem}.pdf"))
-            if attachment_url:
-                try:
-                    attachment_path = self._download_url(
-                        attachment_url,
-                        self._attachment_target(attachment_url, staging_dir, file_stem),
-                    )
-                except Exception as exc:
-                    metadata["attachment_error"] = str(exc)
-            metadata["pdf_url"] = pdf_url
-            metadata["attachment_url"] = attachment_url
-            metadata["attachment_status"] = "downloaded" if attachment_path else "none"
-            return FetchResult(pdf_path, attachment_path, metadata)
+            metadata["_html"] = html
+            return FetchResult(None, None, metadata)
         finally:
             page.close()
 

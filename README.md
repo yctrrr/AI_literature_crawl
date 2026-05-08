@@ -184,7 +184,8 @@ If a previous run downloaded a paper, later formal runs skip downloading it agai
 ### Notes
 
 - Nature page structure can change, so selectors may need maintenance.
-- `nature.journal_name_required_term` filters out articles whose journal title does not contain the configured text before download.
+- `nature.journal_name_required_term` filters out articles whose journal title does not contain the configured text before the run applies `--limit` / `download.max_articles_per_run`.
+- PDF text extraction skips unreadable pages and records extraction failures without stopping the whole run.
 - Institution-protected PDFs may require a logged-in Chrome profile.
 - Search fallback is intentionally rate-limited by `delay_seconds`.
 

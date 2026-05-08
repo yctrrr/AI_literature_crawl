@@ -48,18 +48,15 @@ def main() -> int:
     discovery = SourceDiscovery(config.nature)
     summarize = config.llm.summarize_by_default and not args.no_summarize
     candidates = discovery.discover(config.keywords)
-    new_candidates = [c for c in candidates if not state.is_processed(c.doi, c.url)]
+    unprocessed_candidates = [c for c in candidates if not state.is_processed(c.doi, c.url)]
     process_limit = args.limit or config.download.max_articles_per_run
-    new_candidates = new_candidates[:process_limit]
 
-    print(f"Discovered {len(candidates)} candidates; {len(new_candidates)} new candidates selected.")
-    if args.dry_run:
-        for idx, candidate in enumerate(new_candidates, 1):
-            print(f"{idx}. [{candidate.keyword}] {candidate.title} - {candidate.url}")
-        run_logger.write({"event": "run_complete", "run_id": run_id, "mode": "dry_run", "selected": len(new_candidates)})
-        return 0
+    print(
+        f"Discovered {len(candidates)} candidates; "
+        f"{len(unprocessed_candidates)} unprocessed candidates before journal filtering."
+    )
 
-    if summarize and not os.environ.get(config.llm.api_key_env):
+    if not args.dry_run and summarize and not os.environ.get(config.llm.api_key_env):
         message = f"Missing {config.llm.api_key_env}; aborting before downloads because summarization is enabled."
         run_logger.write({"event": "run_aborted", "run_id": run_id, "reason": "missing_openai_api_key"})
         print(message, file=sys.stderr)
@@ -67,15 +64,59 @@ def main() -> int:
 
     fetcher = ArticleFetcher(config)
     llm = LLMClient(config.llm)
+    run_mode = "full"
 
     try:
         with fetcher:
+            new_candidates = select_journal_candidates(fetcher, state, unprocessed_candidates, process_limit)
+            print(
+                f"Selected {len(new_candidates)} journal-matched candidates "
+                f"for limit {process_limit}."
+            )
+            if args.dry_run:
+                run_mode = "dry_run"
+                for idx, candidate in enumerate(new_candidates, 1):
+                    print(f"{idx}. [{candidate.keyword}] {candidate.title} - {candidate.url}")
+                run_logger.write(
+                    {"event": "run_complete", "run_id": run_id, "mode": "dry_run", "selected": len(new_candidates)}
+                )
+                return 0
             for candidate in new_candidates:
                 process_candidate(candidate, archive, state, fetcher, llm, summarize, run_id)
     finally:
-        run_logger.write({"event": "run_complete", "run_id": run_id, "mode": "full"})
+        if run_mode != "dry_run":
+            run_logger.write({"event": "run_complete", "run_id": run_id, "mode": run_mode})
 
     return 0
+
+
+def select_journal_candidates(fetcher, state, candidates, limit: int) -> list:
+    selected = []
+    for candidate in candidates:
+        if len(selected) >= limit:
+            break
+        try:
+            inspected = fetcher.inspect(candidate)
+        except Exception as exc:
+            state.write_failure(candidate, "prefilter_error", str(exc))
+            print(f"PREFILTER FAILED: {candidate.url} ({exc})")
+            continue
+
+        if inspected.error == "journal_filtered":
+            state.write_filtered(candidate, inspected.metadata, inspected.error)
+            print(
+                "FILTERED: "
+                f"{candidate.url} "
+                f"(journal '{inspected.metadata.get('journal', '')}' does not contain "
+                f"'{inspected.metadata.get('journal_filter_required_term', '')}')"
+            )
+            continue
+        if inspected.error:
+            state.write_failure(candidate, "prefilter_error", inspected.error)
+            print(f"PREFILTER FAILED: {candidate.url} ({inspected.error})")
+            continue
+        selected.append(candidate)
+    return selected
 
 
 def process_candidate(candidate, archive, state, fetcher, llm, summarize: bool, run_id: str) -> None:
@@ -102,7 +143,13 @@ def process_candidate(candidate, archive, state, fetcher, llm, summarize: bool, 
         print(f"NO PDF: {candidate.url}")
         return
 
-    text_excerpt = extract_pdf_text(fetched.pdf_path, max_chars=llm.max_pdf_chars)
+    try:
+        text_excerpt = extract_pdf_text(fetched.pdf_path, max_chars=llm.max_pdf_chars)
+    except Exception as exc:
+        text_excerpt = ""
+        fetched.metadata["pdf_text_error"] = str(exc)
+        state.write_failure(candidate, "pdf_text_error", str(exc))
+        print(f"PDF TEXT FAILED: {candidate.url} ({exc})")
     categories = archive.categories()
     classification = llm.classify(candidate, fetched.metadata, text_excerpt, categories)
     article_dir = archive.finalize_article(candidate, fetched, classification)
