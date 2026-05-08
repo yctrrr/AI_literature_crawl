@@ -173,7 +173,6 @@ If a previous run downloaded a paper, later formal runs skip downloading it agai
 - Nature page structure can change, so selectors may need maintenance.
 - Institution-protected PDFs may require a logged-in Chrome profile.
 - Search fallback is intentionally rate-limited by `delay_seconds`.
-- Keep `.browser_profile/` local; it is ignored by git and should not be uploaded.
 
 ## 中文
 
@@ -348,4 +347,3 @@ python <repo>\run_weekly.py --config <repo>\config.yaml
 - Nature 页面结构可能变化，选择器后续可能需要维护。
 - 需要机构权限的 PDF 可能依赖已登录的 Chrome profile。
 - 搜索 fallback 会受到 `delay_seconds` 限速控制。
-- `.browser_profile/` 只应保存在本地，已经被 `.gitignore` 忽略，不应上传到 GitHub。
